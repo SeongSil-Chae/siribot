@@ -100,6 +100,10 @@ def get_futures_message():
 
     return "\n\n".join(lines)
 
+@app.get("/debug-stock/{code}")
+def debug_stock(code: str):
+    return get_naver_stock_detail(code)
+
 @app.get("/debug-html")
 def debug_html():
     url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
