@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from datetime import datetime
 import requests
 import re
+from urllib.parse import quote
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 import yfinance as yf
@@ -406,6 +407,63 @@ def get_news_message(keyword, limit=3):
     except Exception:
         return ""
 
+def clean_text(text):
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def get_naver_stock_detail(code: str):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, "lxml")
+        html = res.text
+
+        result = {
+            "market_cap": "-",
+            "per": "-",
+            "pbr": "-",
+            "foreign_rate": "-",
+            "industry": "-"
+        }
+
+        # 시가총액
+        m = re.search(r"시가총액</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        if m:
+            result["market_cap"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+
+        # PER
+        m = re.search(r"PER</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        if m:
+            result["per"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+
+        # PBR
+        m = re.search(r"PBR</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        if m:
+            result["pbr"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+
+        # 외국인소진율
+        m = re.search(r"외국인소진율</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        if m:
+            result["foreign_rate"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+
+        # 업종
+        industry_tag = soup.select_one("h4.h_sub.sub_tit7 em")
+        if industry_tag:
+            result["industry"] = clean_text(industry_tag.get_text())
+
+        return result
+
+    except Exception:
+        return {
+            "market_cap": "-",
+            "per": "-",
+            "pbr": "-",
+            "foreign_rate": "-",
+            "industry": "-"
+        }
+
 def get_stock_message(user_text: str) -> str:
     ticker, display_name, error = find_ticker(user_text)
 
@@ -466,18 +524,42 @@ def get_stock_message(user_text: str) -> str:
     market_name = get_market_name(ticker)
     clean_ticker = ticker.replace(".KS", "").replace(".KQ", "")
 
-    news_text = get_news_message(display_name)
+    naver_detail = None
 
-    return f"""{display_name} ({clean_ticker}) {market_name}
+    if ticker.endswith(".KS") or ticker.endswith(".KQ"):
+        naver_detail = get_naver_stock_detail(clean_ticker)
 
-{color} {format_price(price, ticker)} {arrow}{format_price(abs(diff), ticker)} ({rate:+.2f}%)
+        news_text = get_news_message(display_name)
 
-• 시가총액: {format_market_cap(market_cap)}
-• 거래량: {volume_text}주
-• PER: {per_text}
-• PBR: {pbr_text}
-• 업종: {sector_text}
-• 외국인비중: {foreign_text}{news_text}"""
+    if naver_detail:
+        return f"""{display_name} ({clean_ticker}) {market_name}
+
+    {color} {format_price(price, ticker)} {arrow}{format_price(abs(diff), ticker)} ({rate:+.2f}%)
+
+    • 시가총액: {naver_detail["market_cap"]}
+    • 거래량: {volume_text}주
+    • PER: {naver_detail["per"]}
+    • PBR: {naver_detail["pbr"]}
+    • 업종: {naver_detail["industry"]}
+    • 외국인비중: {naver_detail["foreign_rate"]}
+
+    {news_text}"""
+
+        return f"""{display_name} ({clean_ticker}) {market_name}
+
+    {color} {format_price(price, ticker)} {arrow}{format_price(abs(diff), ticker)} ({rate:+.2f}%)
+
+    • 시가총액: {format_market_cap(market_cap)}
+    • 거래량: {volume_text}주
+    • PER: {per_text}
+    • PBR: {pbr_text}
+    • 업종: {sector_text}
+    • 외국인비중: {foreign_text}
+
+    {news_text}"""
+
+
+
 @app.get("/test/{keyword}")
 def test_stock(keyword: str):
     return {
