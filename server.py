@@ -3,6 +3,7 @@ from datetime import datetime
 import requests
 import re
 from bs4 import BeautifulSoup
+from urllib.parse import quote
 import yfinance as yf
 import FinanceDataReader as fdr
 
@@ -375,6 +376,35 @@ def format_price(price, ticker):
         return f"{price:,.0f}원"
     return f"{price:,.2f}"
 
+def get_news_message(keyword, limit=3):
+    try:
+        url = f"https://search.naver.com/search.naver?where=news&query={quote(keyword)}"
+
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        html = requests.get(url, headers=headers, timeout=5).text
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        news = soup.select("a.news_tit")[:limit]
+
+        if not news:
+            return ""
+
+        lines = ["", "📰 관련 뉴스"]
+
+        for item in news:
+            title = item.get("title", "").strip()
+
+            if title:
+                lines.append(f"• {title}")
+
+        return "\n".join(lines)
+
+    except Exception:
+        return ""
 
 def get_stock_message(user_text: str) -> str:
     ticker, display_name, error = find_ticker(user_text)
@@ -394,7 +424,20 @@ def get_stock_message(user_text: str) -> str:
 
     market_cap = info.get("marketCap")
     volume = info.get("volume", 0)
+    per = info.get("trailingPE")
+    pbr = info.get("priceToBook")
+    sector = info.get("sector")
+    foreign = info.get("heldPercentInstitutions")
+
     volume_text = f"{volume:,}" if volume else "-"
+    per_text = f"{per:.2f}" if per else "-"
+    pbr_text = f"{pbr:.2f}" if pbr else "-"
+    sector_text = sector if sector else "-"
+
+    if foreign is not None:
+        foreign_text = f"{foreign * 100:.2f}%"
+    else:
+        foreign_text = "-"
 
     price = None
     prev_close = None
@@ -421,18 +464,20 @@ def get_stock_message(user_text: str) -> str:
     color = "🔴" if diff >= 0 else "🔵"
 
     market_name = get_market_name(ticker)
-
     clean_ticker = ticker.replace(".KS", "").replace(".KQ", "")
 
-    return f"""{display_name} ({clean_ticker})
-{market_name}
+    news_text = get_news_message(display_name)
+
+    return f"""{display_name} ({clean_ticker}) {market_name}
 
 {color} {format_price(price, ticker)} {arrow}{format_price(abs(diff), ticker)} ({rate:+.2f}%)
 
 • 시가총액: {format_market_cap(market_cap)}
-• 거래량: {volume_text}주"""
-
-
+• 거래량: {volume_text}주
+• PER: {per_text}
+• PBR: {pbr_text}
+• 업종: {sector_text}
+• 외국인비중: {foreign_text}{news_text}"""
 @app.get("/test/{keyword}")
 def test_stock(keyword: str):
     return {
