@@ -421,8 +421,8 @@ def get_naver_stock_detail(code: str):
         headers = {"User-Agent": "Mozilla/5.0"}
 
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, "lxml")
         html = res.text
+        soup = BeautifulSoup(html, "lxml")
 
         result = {
             "market_cap": "-",
@@ -432,30 +432,34 @@ def get_naver_stock_detail(code: str):
             "industry": "-"
         }
 
+        text = soup.get_text(" ", strip=True)
+
         # 시가총액
-        m = re.search(r"시가총액</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        m = re.search(r"시가총액\s*([\d,]+)\s*억", text)
         if m:
-            result["market_cap"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+            result["market_cap"] = f'{m.group(1)}억'
 
         # PER
-        m = re.search(r"PER</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        m = re.search(r"PER\s*([\d\.\-]+)\s*배", text)
         if m:
-            result["per"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+            result["per"] = m.group(1)
 
         # PBR
-        m = re.search(r"PBR</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        m = re.search(r"PBR\s*([\d\.\-]+)\s*배", text)
         if m:
-            result["pbr"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+            result["pbr"] = m.group(1)
 
         # 외국인소진율
-        m = re.search(r"외국인소진율</span>.*?<em[^>]*>(.*?)</em>", html, re.S)
+        m = re.search(r"외국인소진율\s*([\d\.]+)%", text)
         if m:
-            result["foreign_rate"] = clean_text(BeautifulSoup(m.group(1), "lxml").get_text())
+            result["foreign_rate"] = f'{m.group(1)}%'
 
         # 업종
         industry_tag = soup.select_one("h4.h_sub.sub_tit7 em")
         if industry_tag:
-            result["industry"] = clean_text(industry_tag.get_text())
+            industry = clean_text(industry_tag.get_text())
+            industry = industry.replace("업종명 :", "").split("｜")[0].strip()
+            result["industry"] = industry
 
         return result
 
